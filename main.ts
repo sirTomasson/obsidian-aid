@@ -1,81 +1,102 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import {App, debounce, Plugin, PluginSettingTab, Setting, TAbstractFile} from 'obsidian';
+import {MeiliSearchEngine, ObsidianSearchEngine} from "./lib/search-engine";
+import {DocumentChunk} from "./lib/core";
 
-// Remember to rename these classes and interfaces!
+import {DocumentService, ObsidianDocumentService} from "./lib/document-service";
+import {MeiliSearch} from "meilisearch";
 
-interface MyPluginSettings {
-	mySetting: string;
+interface ObsidianAIdPluginSettings {
+	meiliHost: string;
+	meiliMasterKey: string | undefined;
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+const DEFAULT_SETTINGS: ObsidianAIdPluginSettings = {
+	meiliHost: 'http://localhost:7700',
+	meiliMasterKey: undefined,
 }
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+export default class ObsidianAIdPlugin extends Plugin {
+	private vaultRoot: string;
+	private documentService: DocumentService;
+
+	settings: ObsidianAIdPluginSettings;
+
+
+	private async initDocumentService() {
+		const client = new MeiliSearch({
+			host: this.settings.meiliHost,
+			apiKey: this.settings.meiliMasterKey,
+		});
+		const indexUid = 'obsidian-aid'
+
+		const searchEngine = new MeiliSearchEngine<DocumentChunk>(client, indexUid);
+		this.documentService = new ObsidianDocumentService(searchEngine, {
+			chunkSize: 3000,
+			chunkOverlap: 500,
+			vaultRoot: this.vaultRoot,
+		})
+	}
+
+	private async init() {
+		this.vaultRoot = (this.app.vault.adapter as any).basePath;
+		await this.initDocumentService();
+	}
 
 	async onload() {
 		await this.loadSettings();
+		await this.init();
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
 		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
+		this.addSettingTab(new ObsidianAIdSettingsTab(this.app, this));
+
+
+		if (!await this.documentService.healthy()) {
+			statusBarItemEl.setText('MeiliSearch Status: FAILED');
+			console.error('Could not connect to MeiliSearch, please check settings');
+			return;
+		}
+
+		await this.documentService.resetIndex();
+		await this.documentService.createAll(this.app.vault.getMarkdownFiles());
+		statusBarItemEl.setText('MeiliSearch Status: SUCCESS');
+
+		this.registerEvent(this.app.vault.on('create', async (file) => {
+			if (!file.path.endsWith('.md')) {
+				return
 			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
+
+			await this.documentService.create(file);
+		}));
+
+		this.registerEvent(this.app.vault.on('rename', async (file, oldPath) => {
+			if (!file.path.endsWith('.md')) {
+				return
 			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
+			await this.documentService.move(oldPath, file);
+		}));
+
+		this.registerEvent(this.app.vault.on('delete', async (file) => {
+			if (!file.path.endsWith('.md')) {
+				return
 			}
-		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+			await this.documentService.delete(file);
+		}));
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
+		const modifyDelayed = debounce(async (file: TAbstractFile) => {
+			await this.documentService.delete(file);
+			await this.documentService.create(file);
+		}, 5_000, true)
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+		this.registerEvent(this.app.vault.on('modify', async (file) => {
+			if (!file.path.endsWith('.md')) {
+				return
+			}
+
+			modifyDelayed(file)
+		}));
 	}
 
 	onunload() {
@@ -91,28 +112,10 @@ export default class MyPlugin extends Plugin {
 	}
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+class ObsidianAIdSettingsTab extends PluginSettingTab {
 
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
-
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, private plugin: ObsidianAIdPlugin) {
 		super(app, plugin);
-		this.plugin = plugin;
 	}
 
 	display(): void {
@@ -121,14 +124,42 @@ class SampleSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Setting #1')
+			.setName('Meili URL')
+			.setDesc('URL of your Meili Search instance')
+			.addText(text => {
+				text.setPlaceholder('http://localhost:7700')
+					.setValue(this.plugin.settings.meiliHost)
+					.onChange(async (value) => {
+						this.plugin.settings.meiliHost = value;
+						await this.plugin.saveSettings();
+					})
+			})
+
+		new Setting(containerEl)
+			.setName('Meili Master Key')
 			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
+			.addText(text => {
+				text
+					.setPlaceholder('XXXXXX-XXXX-XXXX-XXXX-XXXXXX')
+					.onChange(async (value) => {
+						this.plugin.settings.meiliMasterKey = value;
+						await this.plugin.saveSettings();
+					});
+				if (this.plugin.settings.meiliMasterKey) {
+					text.setValue(this.plugin.settings.meiliMasterKey)
+				}
+			});
+
+		new Setting(containerEl)
+			.setName('Reset Index')
+			.setDesc('This will remove all data form search engine and resynchronise')
+			.addButton(button => {
+				button
+					.setButtonText('Reset Index')
+					.onClick(async () => {
+					})
+			})
 	}
 }
+
+

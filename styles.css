@@ -6,3 +6,152 @@ available in the app when your plugin is enabled.
 If your plugin does not need CSS, delete this file.
 
 */
+@keyframes flyIn {
+	from {
+		opacity: 0;
+		transform: translateY(20px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+body {
+	margin: 0;
+	padding: 0;
+	height: 100vh; /* Ensure body takes full height */
+	display: flex;
+	flex-direction: column;
+}
+
+.chat-container {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	width: 100%;
+	max-width: 600px;
+	margin: auto;
+	position: relative; /* Necessary for footer positioning */
+}
+
+.chat-header, .chat-footer {
+	padding-bottom: 10px;
+	text-align: center;
+}
+
+.chat-body {
+	display: flex;
+	flex: 1;
+	overflow-y: auto;
+	flex-direction: column;
+}
+
+.message {
+	margin-bottom: 15px;
+	padding: 10px;
+	border-radius: 5px;
+	max-width: 90%;
+	user-select: text;
+}
+
+.message.sent {
+	background-color: var(--color-base-30);
+	margin-left: auto;
+	text-align: left;
+}
+
+.message.received {
+	margin-right: auto;
+	text-align: left;
+}
+
+.chat-footer {
+	display: flex;
+	align-items: center;
+	position: sticky;
+}
+
+.chat-footer input[type="text"] {
+	flex: 1;
+	padding: 10px;
+	border: 1px solid #ddd;
+	border-radius: 5px;
+}
+
+.chat-footer button {
+	padding: 6px;
+	width: 30px;
+	height: 30px;
+	margin-left: 10px;
+	background-color: var(--interactive-accent);
+	color: #fff;
+	border: none;
+	border-radius: 5px;
+	cursor: pointer;
+}
+
+.chat-footer button:hover {
+	background-color: var(--interactive-accent-hover);
+}
+
+.account-icon {
+	margin-right: 12px;
+	position: relative;
+	display: flex;
+	align-items: center;
+}
+
+.account-icon img {
+	width: 36px;
+	height: 36px;
+	cursor: pointer;
+	border-radius: 50%; /* Make avatars round */
+	transition: box-shadow 0.3s; /* Smooth transition */
+}
+
+.account-icon img:hover {
+	box-shadow: 0 0 10px rgba(0, 0, 0, 0.2); /* Add shadow on hover */
+}
+
+.account-dropdown {
+	padding-bottom: 8px;
+	display: none;
+	position: absolute;
+	bottom: 100%;
+	left: 0;
+	background-color: transparent; /* Semi-transparent background */
+	z-index: 1;
+	flex-direction: column; /* Ensure dropdown items are in a column */
+}
+
+.account-dropdown .account-item {
+	padding-left: 2px;
+	padding-top: 8px;
+	opacity: 0; /* Initially hidden */
+	transform: translateY(20px); /* Start position for animation */
+	cursor: pointer;
+}
+
+.account-dropdown .account-item img {
+	width: 32px;
+	height: 32px;
+	border-radius: 50%; /* Make avatars round */
+	filter: grayscale(100%); /* Apply grayscale */
+	transition: filter 0.3s, box-shadow 0.3s; /* Smooth transition */
+}
+
+.account-dropdown .account-item:hover img {
+	filter: grayscale(0%); /* Remove grayscale on hover */
+	box-shadow: 0 0 10px rgba(0, 0, 0, 0.2); /* Add shadow on hover */
+}
+
+.account-icon:hover .account-dropdown,
+.account-dropdown:hover {
+	display: flex; /* Use flex to show items in a column */
+}
+
+.account-icon:hover .account-dropdown .account-item {
+	animation: flyIn 0.3s forwards; /* Apply the fly-in animation */
+}
+

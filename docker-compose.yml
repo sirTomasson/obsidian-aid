@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    container_name: meilisearch
+    ports:
+      - '7700:7700'
+    env_file:
+      - .env
+    volumes:
+      - meilisearch_data:/meili_data
+
+volumes:
+  meilisearch_data:
