@@ -2,7 +2,6 @@ import {
 	BaseComponent, Component,
 	IconName,
 	ItemView,
-	MarkdownRenderer, Plugin,
 	setIcon,
 	WorkspaceLeaf
 } from "obsidian";
@@ -20,6 +19,7 @@ import {ObsidianSearchEngine} from "./search-engine";
 import {DocumentChunk} from "./core"
 import {formatDocumentsAsString} from "langchain/util/document";
 import {InMemoryChatMessageHistory} from "@langchain/core/chat_history";
+import {MarkdownRenderingContext} from './md';
 
 
 export const VIEW_TYPE_LLM_CHAT = 'view-type-llm-chat'
@@ -185,18 +185,6 @@ export class LlmChat extends ItemView {
 	}
 }
 
-class MarkdownRenderingContext {
-
-	constructor(public plugin: Plugin) {
-	}
-}
-
-async function renderMarkdown(context: MarkdownRenderingContext,
-															text: string,
-															element: HTMLElement) {
-	await MarkdownRenderer.render(context.plugin.app, text, element, '', context.plugin);
-}
-
 abstract class AbstractChatMessageComponent extends Component {
 
 	abstract bind(containerEl: HTMLElement): void;
@@ -222,7 +210,7 @@ class ChatMessageReceivedComponent extends AbstractChatMessageComponent {
 
 	async bind(containerEl: HTMLElement): Promise<void> {
 		const div = containerEl.createDiv({cls: 'message received'});
-		await renderMarkdown(this.renderingContext, this.text, div)
+		await MarkdownRenderingContext.renderMarkdown(this.renderingContext, this.text, div)
 	}
 }
 
@@ -251,7 +239,7 @@ class StreamingChatMessageComponent extends AbstractChatMessageComponent {
 	private async updateMessage(text: string): Promise<void> {
 		this.content += text
 		this.message.textContent = ''
-		await renderMarkdown(this.renderingContext, this.content, this.message)
+		await MarkdownRenderingContext.renderMarkdown(this.renderingContext, this.content, this.message)
 	}
 
 	cancel() {

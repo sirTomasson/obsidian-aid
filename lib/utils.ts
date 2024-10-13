@@ -84,3 +84,33 @@ export function buildPluginStaticResourceSrc(plugin: ObsidianAIdPlugin, assetPat
 			assetPath)
 	)
 }
+
+export function err<T>(value: T): Err<T> {
+	return new Err<T>(value);
+}
+
+export class Err<T> {
+	constructor(public readonly value: T) {}
+}
+
+export function isErr<E = unknown>(value: unknown | Err<E>): value is Err<E> {
+	return (value instanceof Err)
+}
+
+export function isOk<T = unknown, E = unknown>(value: T | Err<E>): value is T {
+	return !(value instanceof Err);
+}
+
+export function ok<T, E>(valueOrError: T | Err<E>): T {
+	if (valueOrError instanceof Err) {
+		throw new Error(`Panic! \n\n ${valueOrError}`);
+	}
+	return valueOrError!;
+}
+
+export function asErr<E>(valueOrError: unknown | Err<E>): Err<E> {
+	if (valueOrError instanceof Err) {
+		return valueOrError!
+	}
+	throw new TypeError(`Panic!\n\nvalueOrError not an instance Err<E>.`);
+}

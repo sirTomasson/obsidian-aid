@@ -1,16 +1,25 @@
-import {ObsidianSearchEngine} from "./search-engine";
-import {Document, DocumentChunk, DocumentChunkParams, documentOk, TFileLike} from "./core";
-import {TAbstractFile } from "obsidian";
+import {ObsidianSearchEngine} from './search-engine';
+import {Document, DocumentChunk, DocumentChunkParams, documentOk, TFileLike} from './core';
+import {TAbstractFile} from 'obsidian';
+import {Embeddings, Options as EmbeddingsOptions} from './embeddings';
 
 export interface DocumentService {
 	create(tfile: TAbstractFile): Promise<void>;
+
 	createAll(tfile: TAbstractFile[]): Promise<void>;
+
 	delete(tfile: TAbstractFile): Promise<void>;
+
 	deleteBy<V = unknown>(value: V, property: string): Promise<void>;
+
 	deleteAll(tfile: TAbstractFile[]): Promise<void>;
+
 	update(tfile: TAbstractFile): Promise<void>;
+
 	healthy(): Promise<boolean>;
+
 	resetIndex(): Promise<boolean>;
+
 	move(oldPath: string, file: TAbstractFile): Promise<void>;
 }
 
@@ -18,12 +27,14 @@ interface DocumentServiceConfig {
 	chunkSize: number;
 	chunkOverlap: number;
 	vaultRoot: string;
+	embeddingsOptions?: EmbeddingsOptions;
 }
 
 export class ObsidianDocumentService implements DocumentService {
 
 	constructor(private searchEngine: ObsidianSearchEngine<DocumentChunk>,
-							private config: DocumentServiceConfig) { }
+							private config: DocumentServiceConfig) {
+	}
 
 	async create(tfile: TAbstractFile): Promise<void> {
 		await this.createAll([tfile]);
@@ -31,7 +42,8 @@ export class ObsidianDocumentService implements DocumentService {
 
 	async createAll(tfiles: TAbstractFile[]): Promise<void> {
 		const documentChunks = await this.chunk(tfiles);
-		await this.searchEngine.add(documentChunks);
+		const chunksEmbeddings = await Embeddings.fromDocumentChunks(documentChunks, this.config.embeddingsOptions);
+		await this.searchEngine.add(chunksEmbeddings);
 	}
 
 	async delete(tfile: TAbstractFile): Promise<void> {
@@ -57,14 +69,14 @@ export class ObsidianDocumentService implements DocumentService {
 			.flatMap(tAbstractFile => toTFileLike(tAbstractFile))
 			.map(async tfile => await chunk(tfile, this.config.vaultRoot, {
 				chunkSize: this.config.chunkSize,
-				chunkOverlap: this.config.chunkOverlap,
+				chunkOverlap: this.config.chunkOverlap
 			}));
 
 		return (await Promise.all(chunks)).flat();
 	}
 
 	async healthy(): Promise<boolean> {
-		return this.searchEngine.healthy()
+		return this.searchEngine.healthy();
 	}
 
 	async resetIndex(): Promise<boolean> {
@@ -72,8 +84,16 @@ export class ObsidianDocumentService implements DocumentService {
 	}
 
 	async move(oldPath: string, file: TAbstractFile): Promise<void> {
-		await this.searchEngine.deleteBy(oldPath, 'metadata.path');
-		await this.create(file);
+		const documentChunks = await this.searchEngine.findBy(oldPath, 'metadata.path');
+		if (documentChunks.length < 0) {
+			console.error(`Could not find document by ${oldPath}`);
+			return;
+		}
+		const updatedChunks = documentChunks.map(documentChunk => {
+			documentChunk.metadata.path = file.path;
+			return documentChunk;
+		});
+		await this.searchEngine.add(updatedChunks);
 	}
 }
 
@@ -83,13 +103,13 @@ function toTFileLike(tfile: TAbstractFile): TFileLike {
 			path: tfile.path,
 			name: tfile.name,
 			extension: 'md'
-		}
+		};
 	}
-	throw new Error('unsupported extension')
+	throw new Error('unsupported extension');
 }
 
 async function chunk(tfile: TFileLike, vaultRoot: string, config: DocumentChunkParams) {
 	const documents = (await Document.fromTFiles([tfile], vaultRoot))
 		.filter(documentOk);
-	return DocumentChunk.fromDocuments(documents, config)
+	return DocumentChunk.fromDocuments(documents, config);
 }

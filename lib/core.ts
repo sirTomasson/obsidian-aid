@@ -6,12 +6,6 @@ import path from 'path';
 import {RecursiveCharacterTextSplitter} from "@langchain/textsplitters";
 import assert from "node:assert";
 
-export enum DocumentStatus {
-	DELETED,
-	NEW,
-	INDEXED
-}
-
 interface DocumentMetaData extends Record<string, unknown> {
 	filename: string;
 	path: string;
@@ -35,7 +29,11 @@ export type DocumentChunkParams = {
 	chunkOverlap: number
 }
 
-export class DocumentChunk implements DocumentInterface<DocumentChunkMetaData> {
+export interface DocumentChunkInterface extends DocumentInterface<DocumentChunkMetaData> {
+	_vectors?: { pageContent_embeddings: number[] }
+}
+
+export class DocumentChunk implements DocumentChunkInterface {
 	static async fromDocuments(documents: DocumentInterface<DocumentMetaData>[], params: DocumentChunkParams): Promise<DocumentChunk[]> {
 		const textSplitter = new RecursiveCharacterTextSplitter(params)
 
@@ -94,58 +92,6 @@ interface Throwable {
 	throw(): void
 }
 
-interface Result<T, E extends Throwable> {
-	value?: T;
-	error?: E;
-	ok(): T;
-	isOk(): boolean;
-	isErr(): boolean;
-}
-
-abstract class AbstractResult<T, E extends Throwable> implements Result<T, E>{
-	protected constructor(public value?: T,
-												public error?: E) {
-	}
-
-	public ok() {
-		if (this.error) {
-			(this.error as unknown as Throwable).throw()
-		}
-		if (this.value) {
-			return this.value;
-		}
-		throw new Error("Value cannot be undefined")
-	}
-
-	public isOk(): boolean {
-		return this.value !== undefined;
-	}
-
-	public isErr(): boolean {
-		return this.error !== undefined;
-	}
-}
-
-export function ok<T, E extends Throwable>(value: T): Result<T, E> {
-	return new Ok(value)
-}
-
-export function err<T, E extends Throwable>(err: E): Result<T, E> {
-	return new Err(err)
-}
-
-class Ok<T, E extends Throwable> extends AbstractResult<T, E>{
-	constructor(public value: T) {
-		super(value, undefined)
-	}
-}
-
-class Err<T, E extends Throwable> extends AbstractResult<T, E> {
-	constructor(public error: E) {
-		super(undefined, error)
-	}
-}
-
 interface Error<T> {
 	message: string,
 	type: T
@@ -155,29 +101,10 @@ export interface DocumentError extends Error<DocumentErrorType>{
 	message: string;
 	type: DocumentErrorType;
 }
-// function coerce<T, E>(value: T | E, isTypeT: (value: any) => value is T): value is T {
-// 	return isTypeT(value);
-// }
-export function filterOk<T, E>(value: T | E): value is T {
-	return value !== undefined
-}
-
-export function tri<T, E>(tryFn: () => T, errFn: () => E): T | E {
-	try {
-		return tryFn()
-	} catch (e) {
-		return errFn()
-	}
-}
-
-export function coerce<T, E>(value: T | E, isTypeT: (value: T | E) => value is T): value is T {
-	return isTypeT(value);
-}
 
 export function documentOk(docOrErr: Document | DocumentError): docOrErr is Document {
 	return docOrErr instanceof Document
 }
-
 
 
 export class Document implements DocumentInterface<DocumentMetaData> {
@@ -207,5 +134,5 @@ export class Document implements DocumentInterface<DocumentMetaData> {
 	}
 	constructor(public id: string,
 							public pageContent: string,
-							public metadata: DocumentMetaData,) { }
+							public metadata: DocumentMetaData) { }
 }

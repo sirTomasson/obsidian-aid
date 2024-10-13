@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   meilisearch:
     image: getmeili/meilisearch:latest
@@ -11,5 +9,13 @@ services:
     volumes:
       - meilisearch_data:/meili_data
 
+  embddings:
+    image: sirtomasson/embddings
+    ports:
+      - '8000:8000'
+    volumes:
+      - embddings_data:/app/huggingface
+
 volumes:
   meilisearch_data:
+  embddings_data:

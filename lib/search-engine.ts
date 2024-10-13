@@ -1,5 +1,7 @@
-import {EnqueuedTask, Index, MeiliSearch, SearchParams, SearchResponse} from "meilisearch";
-import {Document} from "./core"
+import {EnqueuedTask, Index, MeiliSearch, SearchParams, SearchResponse} from 'meilisearch';
+import {Document} from './core';
+
+type EmbeddingProvider = (q: string) => Promise<number[]>
 
 export interface ObsidianSearchEngine<T extends Document> {
 	search(q: string): Promise<SearchResponse<T>>;
@@ -17,6 +19,8 @@ export interface ObsidianSearchEngine<T extends Document> {
 	reset(): Promise<boolean>;
 
 	all(options: QueryOptions<T>): AsyncGenerator<T[]>
+
+	vectorSearch(q: string): Promise<SearchResponse<T[]>>;
 }
 
 export interface QueryOptions<T> {
@@ -47,7 +51,8 @@ function createFilter<V, T>(value: V[] | V, property: Extract<keyof T, string>):
 
 export class MeiliSearchEngine<T extends Document> implements ObsidianSearchEngine<T> {
 	constructor(private client: MeiliSearch,
-							private indexUid: string) {
+							private indexUid: string,
+							private embeddingsProvider: EmbeddingProvider) {
 	}
 
 	private index(): Index<T> {
@@ -59,7 +64,7 @@ export class MeiliSearchEngine<T extends Document> implements ObsidianSearchEngi
 		if (task.status === 'succeeded') {
 			console.info(`{ task: ${enqueuedTask.type}, ${task.status}_at: ${task.finishedAt}, started: ${task.startedAt}, took: ${task.duration} }`)
 		} else {
-			console.error(`{ task: ${enqueuedTask.type}, ${task.status}_at: ${task.finishedAt}, started: ${task.startedAt}, took: ${task.duration}, error: ${task.error} }`)
+			console.error(`{ task: ${enqueuedTask.type}, ${task.status}_at: ${task.finishedAt}, started: ${task.startedAt}, took: ${task.duration}, error: ${task.error?.message} }`)
 		}
 	}
 
@@ -96,8 +101,23 @@ export class MeiliSearchEngine<T extends Document> implements ObsidianSearchEngi
 	}
 
 	async reset(): Promise<boolean> {
-		const enqueuedTask = await this.client.deleteIndex(this.indexUid);
-		await this.handleTask(enqueuedTask);
+		const enqueuedTasks = await Promise.all([
+			this.client.deleteIndex(this.indexUid),
+			this.client.createIndex(this.indexUid),
+			this.client.index(this.indexUid).updateFilterableAttributes(['metadata.path']),
+			this.client.index(this.indexUid).updateEmbedders({
+				pageContent_embeddings: {
+					source: 'userProvided',
+					dimensions: 512,
+				}
+			})
+		]);
+		const tasks = await this.client.waitForTasks(enqueuedTasks.map(enqueuedTask => enqueuedTask.taskUid));
+		const failedTasks = tasks.filter(task => task.status === 'failed')
+		if (failedTasks.length > 0) {
+			failedTasks.forEach(failedTask => (console.error(`{ index: ${failedTask.indexUid} task: ${failedTask.type}, ${failedTask.status}_at: ${failedTask.finishedAt}, started: ${failedTask.startedAt}, took: ${failedTask.duration}, error: ${failedTask.error?.message} }`)));
+			return false;
+		}
 		return true
 	}
 
@@ -111,6 +131,13 @@ export class MeiliSearchEngine<T extends Document> implements ObsidianSearchEngi
 		const index = this.index();
 		const result = await index.getDocuments({filter: `${property} = "${value}"`});
 		return result.results;
+	}
+
+	async vectorSearch(q: string): Promise<SearchResponse<T[]>> {
+		const vector = await this.embeddingsProvider(q);
+		return await vectorSearch<T>(vector, this.client, this.indexUid, {
+			limit: 10
+		})
 	}
 }
 
@@ -128,4 +155,36 @@ async function* dataLoader<T extends Document>(index: Index<T>, options: QueryOp
 		promise = index.getDocuments(queryOptions);
 		yield values.results
 	}
+}
+
+
+export async function vectorSearch<T>(
+	vector: number[],
+	client: MeiliSearch,
+	indexUid: string,
+	options: QueryOptions<T>
+): Promise<SearchResponse<T[]>> {
+	const url = `${client.config.host}/indexes/${indexUid}/search`;
+
+	const body = JSON.stringify({
+		vector,
+		...options,
+	});
+	try {
+		const response = await fetch(url, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'Authorization': `Bearer ${client.config.apiKey}`
+			},
+			body,
+		});
+		if (response.ok) {
+			return await response.json();
+		}
+		console.error(await response.json())
+	} catch (error) {
+		console.error(error);
+	}
+	return [];
 }

@@ -1,9 +1,12 @@
 import {App, debounce, Plugin, PluginSettingTab, Setting, TAbstractFile} from 'obsidian';
-import {MeiliSearchEngine, ObsidianSearchEngine} from "./lib/search-engine";
-import {DocumentChunk} from "./lib/core";
+import {MeiliSearchEngine, ObsidianSearchEngine} from './lib/search-engine';
+import {DocumentChunk} from './lib/core';
 
-import {DocumentService, ObsidianDocumentService} from "./lib/document-service";
-import {MeiliSearch} from "meilisearch";
+import {DocumentService, ObsidianDocumentService} from './lib/document-service';
+import {MeiliSearch} from 'meilisearch';
+import {queryRetrievalEmbeddingsProvider as embeddingsProvider} from './lib/embeddings';
+import {SemanticSearchModal} from './lib/semantic-search-modal';
+import {MarkdownRenderingContext} from './lib/md';
 
 interface ObsidianAIdPluginSettings {
 	meiliHost: string;
@@ -12,12 +15,13 @@ interface ObsidianAIdPluginSettings {
 
 const DEFAULT_SETTINGS: ObsidianAIdPluginSettings = {
 	meiliHost: 'http://localhost:7700',
-	meiliMasterKey: undefined,
-}
+	meiliMasterKey: undefined
+};
 
 export default class ObsidianAIdPlugin extends Plugin {
 	private vaultRoot: string;
 	private documentService: DocumentService;
+	private searchEngine: ObsidianSearchEngine<DocumentChunk>;
 
 	settings: ObsidianAIdPluginSettings;
 
@@ -25,16 +29,20 @@ export default class ObsidianAIdPlugin extends Plugin {
 	private async initDocumentService() {
 		const client = new MeiliSearch({
 			host: this.settings.meiliHost,
-			apiKey: this.settings.meiliMasterKey,
+			apiKey: this.settings.meiliMasterKey
 		});
-		const indexUid = 'obsidian-aid'
+		const indexUid = 'obsidian-aid';
 
-		const searchEngine = new MeiliSearchEngine<DocumentChunk>(client, indexUid);
-		this.documentService = new ObsidianDocumentService(searchEngine, {
+		this.searchEngine = new MeiliSearchEngine<DocumentChunk>(client, indexUid, embeddingsProvider(512));
+		this.documentService = new ObsidianDocumentService(this.searchEngine, {
 			chunkSize: 3000,
 			chunkOverlap: 500,
 			vaultRoot: this.vaultRoot,
-		})
+			embeddingsOptions: {
+				size: 512,
+				task: 'retrieval.passage'
+			}
+		});
 	}
 
 	private async init() {
@@ -57,13 +65,25 @@ export default class ObsidianAIdPlugin extends Plugin {
 			return;
 		}
 
+		this.addCommand({
+			id: 'obsidain-aid-semantic-search',
+			name: 'Semantic Search',
+			callback: () => {
+				new SemanticSearchModal(
+					this.searchEngine,
+					this.app,
+					new MarkdownRenderingContext(this)
+				).open()
+			}
+		});
+
 		await this.documentService.resetIndex();
 		await this.documentService.createAll(this.app.vault.getMarkdownFiles());
 		statusBarItemEl.setText('MeiliSearch Status: SUCCESS');
 
 		this.registerEvent(this.app.vault.on('create', async (file) => {
 			if (!file.path.endsWith('.md')) {
-				return
+				return;
 			}
 
 			await this.documentService.create(file);
@@ -71,7 +91,7 @@ export default class ObsidianAIdPlugin extends Plugin {
 
 		this.registerEvent(this.app.vault.on('rename', async (file, oldPath) => {
 			if (!file.path.endsWith('.md')) {
-				return
+				return;
 			}
 
 			await this.documentService.move(oldPath, file);
@@ -79,23 +99,22 @@ export default class ObsidianAIdPlugin extends Plugin {
 
 		this.registerEvent(this.app.vault.on('delete', async (file) => {
 			if (!file.path.endsWith('.md')) {
-				return
+				return;
 			}
 
 			await this.documentService.delete(file);
 		}));
 
 		const modifyDelayed = debounce(async (file: TAbstractFile) => {
-			await this.documentService.delete(file);
-			await this.documentService.create(file);
-		}, 5_000, true)
+			await this.documentService.update(file);
+		}, 5_000, true);
 
 		this.registerEvent(this.app.vault.on('modify', async (file) => {
 			if (!file.path.endsWith('.md')) {
-				return
+				return;
 			}
 
-			modifyDelayed(file)
+			modifyDelayed(file);
 		}));
 	}
 
@@ -132,8 +151,8 @@ class ObsidianAIdSettingsTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.meiliHost = value;
 						await this.plugin.saveSettings();
-					})
-			})
+					});
+			});
 
 		new Setting(containerEl)
 			.setName('Meili Master Key')
@@ -146,7 +165,7 @@ class ObsidianAIdSettingsTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					});
 				if (this.plugin.settings.meiliMasterKey) {
-					text.setValue(this.plugin.settings.meiliMasterKey)
+					text.setValue(this.plugin.settings.meiliMasterKey);
 				}
 			});
 
@@ -157,8 +176,8 @@ class ObsidianAIdSettingsTab extends PluginSettingTab {
 				button
 					.setButtonText('Reset Index')
 					.onClick(async () => {
-					})
-			})
+					});
+			});
 	}
 }
 
