@@ -8,6 +8,7 @@ import {queryRetrievalEmbeddingsProvider as embeddingsProvider} from './lib/embe
 import {SemanticSearchModal} from './lib/semantic-search-modal';
 import {MarkdownRenderingContext} from './lib/md';
 import {debounce} from './lib/debounce';
+import {retryUntilDone} from './lib/retry';
 
 interface ObsidianAIdPluginSettings {
   meiliHost: string;
@@ -21,6 +22,7 @@ const DEFAULT_SETTINGS: ObsidianAIdPluginSettings = {
 
 export default class ObsidianAIdPlugin extends Plugin {
   private vaultRoot: string;
+  private statusBarItemEl: HTMLElement;
   public documentService: DocumentService;
   public searchEngine: ObsidianSearchEngine<DocumentChunk>;
 
@@ -49,22 +51,14 @@ export default class ObsidianAIdPlugin extends Plugin {
   private async init() {
     this.vaultRoot = (this.app.vault.adapter as any).basePath;
     await this.initDocumentService();
+    this.statusBarItemEl = this.addStatusBarItem();
   }
 
   async onload() {
     await this.loadSettings();
     await this.init();
 
-    const statusBarItemEl = this.addStatusBarItem();
-
     this.addSettingTab(new ObsidianAIdSettingsTab(this.app, this));
-
-
-    if (!await this.documentService.healthy()) {
-      statusBarItemEl.setText('MeiliSearch Status: FAILED');
-      console.error('Could not connect to MeiliSearch, please check settings');
-      return;
-    }
 
     this.addCommand({
       id: 'obsidain-aid-semantic-search',
@@ -78,15 +72,49 @@ export default class ObsidianAIdPlugin extends Plugin {
       }
     });
 
-    await this.documentService.createIndex();
-    statusBarItemEl.setText('AId: syncing');
-    this.documentService.sync(this.app.vault.getMarkdownFiles())
-      .then(() => {
-        statusBarItemEl.setText('AId: ok');
-        statusBarItemEl.setAttribute('aria-label', 'Obsidian AId Status OK');
-        statusBarItemEl.setAttribute('data-tooltip-position', 'top');
-      });
+    const retryInterval = 30_000; // 30 seconds
+    await retryUntilDone(async (done) => {
+      const ok = await this.documentService.healthy();
+      this.updateConnectionStatus(ok);
+      if (!ok) {
+        const now = new Date();
+        now.setMilliseconds(now.getMilliseconds() + retryInterval);
+        console.error(`Connection with MeiliSearch Failed. Please verify that MeiliSearch is running and your settings are correct. Retrying at ${now}`);
+        return;
+      }
 
+      done();
+    }, retryInterval);
+
+    this.initDocumentListeners();
+    await this.syncDocuments();
+  }
+
+  onunload() {
+
+  }
+
+  async loadSettings() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
+
+  async saveSettings() {
+    await this.saveData(this.settings);
+  }
+
+  private updateConnectionStatus(ok: boolean) {
+    if (ok) {
+      this.statusBarItemEl.setText('Aid: ok');
+      this.statusBarItemEl.setAttribute('aria-label', 'Connection with Meilisearch succeeded');
+      this.statusBarItemEl.setAttribute('data-tooltip-position', 'top');
+    } else {
+      this.statusBarItemEl.setText('Aid: Failed');
+      this.statusBarItemEl.setAttribute('aria-label', 'Could not connect to MeiliSearch, please check settings');
+      this.statusBarItemEl.setAttribute('data-tooltip-position', 'top');
+    }
+  }
+
+  private initDocumentListeners() {
     this.registerEvent(this.app.vault.on('create', async (file) => {
       if (!file.path.endsWith('.md')) return;
 
@@ -117,16 +145,15 @@ export default class ObsidianAIdPlugin extends Plugin {
     }));
   }
 
-  onunload() {
-
-  }
-
-  async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-  }
-
-  async saveSettings() {
-    await this.saveData(this.settings);
+  private async syncDocuments() {
+    await this.documentService.createIndex();
+    this.statusBarItemEl.setText('AId: syncing');
+    this.documentService.sync(this.app.vault.getMarkdownFiles())
+      .then(() => {
+        this.statusBarItemEl.setText('AId: ok');
+        this.statusBarItemEl.setAttribute('aria-label', 'Obsidian AId Status OK');
+        this.statusBarItemEl.setAttribute('data-tooltip-position', 'top');
+      });
   }
 }
 

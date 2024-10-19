@@ -110,22 +110,22 @@ export class MeiliSearchEngine<T extends Document> implements ObsidianSearchEngi
 	}
 
 	async createIndex(): Promise<boolean> {
-		if (!(await this.indexExists())) {
-			const enqueuedTasks = await Promise.all([
-				this.client.createIndex(this.indexUid),
-				this.client.index(this.indexUid).updateFilterableAttributes(['metadata.path']),
-				this.client.index(this.indexUid).updateEmbedders({
-					pageContent_embeddings: {
-						source: 'userProvided',
-						dimensions: 512,
-					}
-				})
-			]);
-			const tasks = await this.client.waitForTasks(enqueuedTasks.map(enqueuedTask => enqueuedTask.taskUid));
-			const failedTasks = tasks.filter(task => task.status === 'failed');
-			failedTasks.forEach(failedTask => (console.error(`{ index: ${failedTask.indexUid} task: ${failedTask.type}, ${failedTask.status}_at: ${failedTask.finishedAt}, started: ${failedTask.startedAt}, took: ${failedTask.duration}, error: ${failedTask.error?.message} }`)));
-		}
+		const exists = await this.indexExists();
+		if (exists) return true;
 
+		const enqueuedTasks = await Promise.all([
+			this.client.createIndex(this.indexUid),
+			this.client.index(this.indexUid).updateFilterableAttributes(['metadata.path']),
+			this.client.index(this.indexUid).updateEmbedders({
+				pageContent_embeddings: {
+					source: 'userProvided',
+					dimensions: 512,
+				}
+			})
+		]);
+		const tasks = await this.client.waitForTasks(enqueuedTasks.map(enqueuedTask => enqueuedTask.taskUid));
+		const failedTasks = tasks.filter(task => task.status === 'failed');
+		failedTasks.forEach(failedTask => (console.error(`{ index: ${failedTask.indexUid} task: ${failedTask.type}, ${failedTask.status}_at: ${failedTask.finishedAt}, started: ${failedTask.startedAt}, took: ${failedTask.duration}, error: ${failedTask.error?.message} }`)));
 		return true
 	}
 
