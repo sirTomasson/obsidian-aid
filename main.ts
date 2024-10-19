@@ -1,4 +1,4 @@
-import {App, Plugin, PluginSettingTab, Setting, TAbstractFile} from 'obsidian';
+import {App, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, WorkspaceLeaf} from 'obsidian';
 import {MeiliSearchEngine, ObsidianSearchEngine} from './lib/search-engine';
 import {DocumentChunk} from './lib/core';
 
@@ -9,15 +9,18 @@ import {SemanticSearchModal} from './lib/semantic-search-modal';
 import {MarkdownRenderingContext} from './lib/md';
 import {debounce} from './lib/debounce';
 import {retryUntilDone} from './lib/retry';
+import {LlmChat, VIEW_TYPE_LLM_CHAT} from './lib/llm-chat';
 
 interface ObsidianAIdPluginSettings {
   meiliHost: string;
   meiliMasterKey: string | undefined;
+  openAiApiKey: string | undefined;
 }
 
 const DEFAULT_SETTINGS: ObsidianAIdPluginSettings = {
   meiliHost: 'http://localhost:7700',
-  meiliMasterKey: undefined
+  meiliMasterKey: undefined,
+  openAiApiKey: undefined,
 };
 
 export default class ObsidianAIdPlugin extends Plugin {
@@ -48,17 +51,38 @@ export default class ObsidianAIdPlugin extends Plugin {
     });
   }
 
-  private async init() {
+  private init() {
     this.vaultRoot = (this.app.vault.adapter as any).basePath;
-    await this.initDocumentService();
     this.statusBarItemEl = this.addStatusBarItem();
   }
 
   async onload() {
+    this.init();
     await this.loadSettings();
-    await this.init();
-
     this.addSettingTab(new ObsidianAIdSettingsTab(this.app, this));
+
+    if (!this.settingsValid()) {
+      new Notice('Obsidian AId: Some settings are missing, please update your settings. Until then the app will not be activated');
+      return
+    }
+
+    await this.setup();
+  }
+
+  onunload() {
+
+  }
+
+  async loadSettings() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
+
+  async saveSettings() {
+    await this.saveData(this.settings);
+  }
+
+   async setup() {
+    await this.initDocumentService();
 
     this.addCommand({
       id: 'obsidain-aid-semantic-search',
@@ -71,6 +95,14 @@ export default class ObsidianAIdPlugin extends Plugin {
         ).open();
       }
     });
+
+    this.registerView(
+      VIEW_TYPE_LLM_CHAT,
+      (leaf) => new LlmChat(leaf, this)
+    );
+
+
+    await this.activateLlmChatView();
 
     const retryInterval = 30_000; // 30 seconds
     await retryUntilDone(async (done) => {
@@ -90,16 +122,12 @@ export default class ObsidianAIdPlugin extends Plugin {
     await this.syncDocuments();
   }
 
-  onunload() {
-
-  }
-
-  async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-  }
-
-  async saveSettings() {
-    await this.saveData(this.settings);
+  private settingsValid(): boolean {
+    const { meiliHost, meiliMasterKey, openAiApiKey } = this.settings;
+    console.warn(this.settings)
+    return (meiliHost !== undefined && meiliHost !== '') &&
+      (meiliMasterKey !== undefined && meiliMasterKey !== '') &&
+      (openAiApiKey !== undefined && openAiApiKey !== '')
   }
 
   private updateConnectionStatus(ok: boolean) {
@@ -155,6 +183,29 @@ export default class ObsidianAIdPlugin extends Plugin {
         this.statusBarItemEl.setAttribute('data-tooltip-position', 'top');
       });
   }
+
+  private async activateLlmChatView() {
+    const { workspace } = this.app;
+
+    let leaf: WorkspaceLeaf | null = null;
+    const leaves = workspace.getLeavesOfType(VIEW_TYPE_LLM_CHAT);
+
+    if (leaves.length > 0) {
+      // A leaf with our view already exists, use that
+      leaf = leaves[0];
+    } else {
+      // Our view could not be found in the workspace, create a new leaf
+      // in the right sidebar for it
+      leaf = workspace.getRightLeaf(false);
+      if (!leaf) {
+        return console.error(`Failed to create LLMChat view (${VIEW_TYPE_LLM_CHAT}), leaf was ${leaf}`)
+      }
+      await leaf.setViewState({ type: VIEW_TYPE_LLM_CHAT, active: false });
+    }
+
+    // "Reveal" the leaf in case it is in a collapsed sidebar
+    workspace.revealLeaf(leaf);
+  }
 }
 
 class ObsidianAIdSettingsTab extends PluginSettingTab {
@@ -176,8 +227,11 @@ class ObsidianAIdSettingsTab extends PluginSettingTab {
           .setValue(this.plugin.settings.meiliHost)
           .onChange(async (value) => {
             this.plugin.settings.meiliHost = value;
-            await this.plugin.saveSettings();
+            await this.saveAndReload();
           });
+        if (this.plugin.settings.meiliHost) {
+          text.setValue(this.plugin.settings.meiliHost);
+        }
       });
 
     new Setting(containerEl)
@@ -188,10 +242,27 @@ class ObsidianAIdSettingsTab extends PluginSettingTab {
           .setPlaceholder('XXXXXX-XXXX-XXXX-XXXX-XXXXXX')
           .onChange(async (value) => {
             this.plugin.settings.meiliMasterKey = value;
-            await this.plugin.saveSettings();
+            await this.saveAndReload();
           });
+
         if (this.plugin.settings.meiliMasterKey) {
           text.setValue(this.plugin.settings.meiliMasterKey);
+        }
+      });
+
+    new Setting(containerEl)
+      .setName('Open AI API Key')
+      .setDesc('It\'s a secret')
+      .addText(text => {
+        text
+          .setPlaceholder('XXXXXX-XXXX-XXXX-XXXX-XXXXXX')
+          .onChange(async (value) => {
+            this.plugin.settings.openAiApiKey = value;
+            await this.saveAndReload();
+          });
+
+        if (this.plugin.settings.openAiApiKey) {
+          text.setValue(this.plugin.settings.openAiApiKey);
         }
       });
 
@@ -207,6 +278,11 @@ class ObsidianAIdSettingsTab extends PluginSettingTab {
             await this.plugin.documentService.sync(this.app.vault.getMarkdownFiles());
           });
       });
+  }
+
+  private async saveAndReload() {
+    await this.plugin.saveSettings();
+    await this.plugin.setup()
   }
 }
 

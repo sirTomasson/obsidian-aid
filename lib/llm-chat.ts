@@ -34,7 +34,7 @@ export class LlmChat extends ItemView {
 		const model = new ChatOpenAI({
 			model: "gpt-4o",
 			temperature: 0,
-			apiKey: this.plugin.settings.embeddingProviderApiKey
+			apiKey: this.plugin.settings.openAiApiKey
 		});
 		const messages = [
 			new HumanMessage({content: "hi! I'm bob"}),
