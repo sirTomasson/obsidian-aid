@@ -17,3 +17,15 @@ export function debouncePromise<I, T>(fn: (arg: I) => Promise<T>, wait: number) 
 		});
 	}
 }
+
+export function debounce<I>(fn: (arg: I) => unknown, wait: number) {
+	let timeout: NodeJS.Timeout | null = null;
+
+	return function (arg: I) {
+		if (timeout) clearTimeout(timeout);
+
+		timeout = setTimeout(() => {
+			fn(arg);
+		}, wait);
+	}
+}

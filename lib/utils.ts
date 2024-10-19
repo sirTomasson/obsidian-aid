@@ -41,15 +41,6 @@ export function documentsToDeleteOrCreate(synced: Document[], unSynced: Document
 	return { toCreate, toDelete }
 }
 
-export function debounce<T>(callback: (value: T) => Promise<void>, wait: number) {
-	let timeout: NodeJS.Timeout;
-
-	return function(value: T) {
-		clearTimeout(timeout);
-		timeout = setTimeout(() => callback.apply(this, value), wait);
-	};
-}
-
 export function toMap<T extends Record<string, any>>(values: Iterable<T>, key: Extract<keyof T, string>) {
 	const  map = new Map<string, T>();
 	for (const value of values) {
@@ -113,4 +104,8 @@ export function asErr<E>(valueOrError: unknown | Err<E>): Err<E> {
 		return valueOrError!
 	}
 	throw new TypeError(`Panic!\n\nvalueOrError not an instance Err<E>.`);
+}
+
+export function any<T = unknown>(array: Array<T>) {
+	return array.length > 0;
 }

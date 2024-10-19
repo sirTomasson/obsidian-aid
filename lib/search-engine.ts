@@ -14,9 +14,13 @@ export interface ObsidianSearchEngine<T extends Document> {
 
 	deleteBy<V = unknown>(value: V, property: string): Promise<void>;
 
+	deleteByFilter(filter: string): Promise<void>;
+
 	healthy(): Promise<boolean>;
 
-	reset(): Promise<boolean>;
+	createIndex(): Promise<boolean>;
+
+	deleteIndex(): Promise<void>;
 
 	all(options: QueryOptions<T>): AsyncGenerator<T[]>
 
@@ -25,7 +29,7 @@ export interface ObsidianSearchEngine<T extends Document> {
 
 export interface QueryOptions<T> {
 	offset?: number,
-	fields?: Array<Extract<keyof T, string>>,
+	fields?: Array<Extract<keyof T, string> | string>,
 	limit?: number
 }
 
@@ -100,24 +104,28 @@ export class MeiliSearchEngine<T extends Document> implements ObsidianSearchEngi
 		await this.handleTask(enqueuedTask);
 	}
 
-	async reset(): Promise<boolean> {
-		const enqueuedTasks = await Promise.all([
-			this.client.deleteIndex(this.indexUid),
-			this.client.createIndex(this.indexUid),
-			this.client.index(this.indexUid).updateFilterableAttributes(['metadata.path']),
-			this.client.index(this.indexUid).updateEmbedders({
-				pageContent_embeddings: {
-					source: 'userProvided',
-					dimensions: 512,
-				}
-			})
-		]);
-		const tasks = await this.client.waitForTasks(enqueuedTasks.map(enqueuedTask => enqueuedTask.taskUid));
-		const failedTasks = tasks.filter(task => task.status === 'failed')
-		if (failedTasks.length > 0) {
+	async deleteIndex(): Promise<void> {
+		const enqueuedTask = await this.client.deleteIndex(this.indexUid);
+		await this.handleTask(enqueuedTask);
+	}
+
+	async createIndex(): Promise<boolean> {
+		if (!(await this.indexExists())) {
+			const enqueuedTasks = await Promise.all([
+				this.client.createIndex(this.indexUid),
+				this.client.index(this.indexUid).updateFilterableAttributes(['metadata.path']),
+				this.client.index(this.indexUid).updateEmbedders({
+					pageContent_embeddings: {
+						source: 'userProvided',
+						dimensions: 512,
+					}
+				})
+			]);
+			const tasks = await this.client.waitForTasks(enqueuedTasks.map(enqueuedTask => enqueuedTask.taskUid));
+			const failedTasks = tasks.filter(task => task.status === 'failed');
 			failedTasks.forEach(failedTask => (console.error(`{ index: ${failedTask.indexUid} task: ${failedTask.type}, ${failedTask.status}_at: ${failedTask.finishedAt}, started: ${failedTask.startedAt}, took: ${failedTask.duration}, error: ${failedTask.error?.message} }`)));
-			return false;
 		}
+
 		return true
 	}
 
@@ -138,6 +146,23 @@ export class MeiliSearchEngine<T extends Document> implements ObsidianSearchEngi
 		return await vectorSearch<T>(vector, this.client, this.indexUid, {
 			limit: 10
 		})
+	}
+
+	async deleteByFilter(filter: string): Promise<void> {
+		const enqueuedTask = await this.index().deleteDocuments({ filter });
+		await this.handleTask(enqueuedTask);
+	}
+
+	async indexExists(): Promise<boolean> {
+		try {
+			await this.client.getIndex(this.indexUid);
+			return true;
+		} catch (error: any) {
+			if (error.code === 'index_not_found') {
+				return false;
+			}
+			throw error;
+		}
 	}
 }
 
