@@ -48,7 +48,7 @@ export class LlmChat extends ItemView {
 		];
 
 		const contextualizeQSystemPrompt = `Given a chat history and the latest user question
-		which might reference context in the chat history, formulate a standalone question
+		which might reference <context></context> in the chat history, formulate a standalone question
 		which can be understood without the chat history. Do NOT answer the question,
 		just reformulate it if needed and otherwise return it as is.`;
 
@@ -61,12 +61,14 @@ export class LlmChat extends ItemView {
 			.pipe(model)
 			.pipe(new StringOutputParser());
 
-		const qaSystemPrompt = `You are an assistant for question-answering tasks.
-		Use the following pieces of retrieved context to answer the question.
+		const qaSystemPrompt = `
+		You are an assistant for question-answering tasks.
+		Use the pieces of retrieved <context></context> to answer the question.
 		If you don't know the answer, just say that you don't know.
-		Use three sentences maximum and keep the answer concise.
 		
-		{context}`;
+		<context>
+		{context}
+		</context>`;
 
 		const qaPrompt = ChatPromptTemplate.fromMessages([
 			["system", qaSystemPrompt],
@@ -124,7 +126,7 @@ export class LlmChat extends ItemView {
 	}
 
 	getIcon(): IconName {
-		return 'brain-circuit';
+		return 'hand-platter';
 	}
 
 	async onOpen() {
@@ -368,8 +370,8 @@ class ObsidianSearchEngineRetriever extends BaseRetriever {
 	lc_serializable = false;
 
 	async _getRelevantDocuments(query: string): Promise<DocumentChunk[]> {
-		const docs = (await this.searchEngine.search(query)).hits
+		const docs = (await this.searchEngine.vectorSearch(query)).hits
 		console.log(docs)
-		return docs
+		return docs as unknown as DocumentChunk[];
 	}
 }

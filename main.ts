@@ -124,7 +124,6 @@ export default class ObsidianAIdPlugin extends Plugin {
 
   private settingsValid(): boolean {
     const { meiliHost, meiliMasterKey, openAiApiKey } = this.settings;
-    console.warn(this.settings)
     return (meiliHost !== undefined && meiliHost !== '') &&
       (meiliMasterKey !== undefined && meiliMasterKey !== '') &&
       (openAiApiKey !== undefined && openAiApiKey !== '')

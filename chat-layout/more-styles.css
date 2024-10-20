@@ -1,0 +1,68 @@
+body {
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+.inline-block {
+    display: inline-block;
+}
+
+.flex {
+    display: flex;
+}
+
+.ai-message {
+}
+
+.ai-message-context {
+    color: lightgray;
+    background-color: dimgray;
+    border-radius: 5px;
+    padding: 5px 10px 5px 10px;
+    justify-items: center;
+    align-items: center;
+    font-size: 13px;
+}
+
+.icon {
+    color: lightgray;
+    display: flex;
+    padding: 2px;
+    border-radius: 3px; /* Make it round */
+    transition: background-color 0.3s ease; /* Smooth transition */
+    justify-items: center;
+    align-items: center;
+}
+
+.ai-message-context-text {
+    display: flex;
+    justify-items: center;
+    align-items: center;
+}
+
+.icon:hover {
+    background-color: darkgray;
+    border-radius: 3px; /* Make it round */
+    transition: background-color 0.3s ease; /* Smooth transition */
+}
+
+.w16 {
+    width: 16px;
+}
+
+.h16 {
+  height: 16px;
+}
+
+.rotate {
+    transition: transform 0.5s ease; /* Smooth transition */
+}
+
+.rotated {
+    transition: transform 0.5s ease; /* Smooth transition */
+    transform: rotate(-180deg); /* Rotate by 180 degrees on hover */
+}
+
+.clickable {
+
+}
+
