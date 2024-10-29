@@ -1,4 +1,4 @@
-import {App, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, WorkspaceLeaf} from 'obsidian';
+import {App, moment, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, WorkspaceLeaf} from 'obsidian';
 import {MeiliSearchEngine, ObsidianSearchEngine} from './lib/search-engine';
 import {DocumentChunk} from './lib/core';
 
@@ -11,6 +11,7 @@ import {debounce} from './lib/debounce';
 import {retryUntilDone} from './lib/retry';
 import {LlmChat, VIEW_TYPE_LLM_CHAT} from './lib/llm-chat';
 
+
 interface ObsidianAIdPluginSettings {
   meiliHost: string;
   meiliMasterKey: string | undefined;
@@ -20,12 +21,13 @@ interface ObsidianAIdPluginSettings {
 const DEFAULT_SETTINGS: ObsidianAIdPluginSettings = {
   meiliHost: 'http://localhost:7700',
   meiliMasterKey: undefined,
-  openAiApiKey: undefined,
+  openAiApiKey: undefined
 };
 
 export default class ObsidianAIdPlugin extends Plugin {
-  private vaultRoot: string;
+  vaultRoot: string;
   private statusBarItemEl: HTMLElement;
+  private isPreviewVisible = false;
   public documentService: DocumentService;
   public searchEngine: ObsidianSearchEngine<DocumentChunk>;
 
@@ -61,9 +63,18 @@ export default class ObsidianAIdPlugin extends Plugin {
     await this.loadSettings();
     this.addSettingTab(new ObsidianAIdSettingsTab(this.app, this));
 
+    this.addCommand({
+      id: 'open-file-from-link',
+      name: 'Open File from Link',
+      callback: () => {
+        const filePath = 'Groceries.md'; // Set the path to the file you want to open
+        this.app.workspace.openLinkText(filePath, '/', false);
+      }
+    });
+
     if (!this.settingsValid()) {
       new Notice('Obsidian AId: Some settings are missing, please update your settings. Until then the app will not be activated');
-      return
+      return;
     }
 
     await this.setup();
@@ -81,7 +92,7 @@ export default class ObsidianAIdPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
-   async setup() {
+  async setup() {
     await this.initDocumentService();
 
     this.addCommand({
@@ -101,7 +112,6 @@ export default class ObsidianAIdPlugin extends Plugin {
       (leaf) => new LlmChat(leaf, this)
     );
 
-
     await this.activateLlmChatView();
 
     const retryInterval = 30_000; // 30 seconds
@@ -109,9 +119,8 @@ export default class ObsidianAIdPlugin extends Plugin {
       const ok = await this.documentService.healthy();
       this.updateConnectionStatus(ok);
       if (!ok) {
-        const now = new Date();
-        now.setMilliseconds(now.getMilliseconds() + retryInterval);
-        console.error(`Connection with MeiliSearch Failed. Please verify that MeiliSearch is running and your settings are correct. Retrying at ${now}`);
+        const time = moment().add(30, 's');
+        console.error(`Connection with MeiliSearch Failed. Please verify that MeiliSearch is running and your settings are correct. Retrying at ${time}`);
         return;
       }
 
@@ -123,10 +132,10 @@ export default class ObsidianAIdPlugin extends Plugin {
   }
 
   private settingsValid(): boolean {
-    const { meiliHost, meiliMasterKey, openAiApiKey } = this.settings;
+    const {meiliHost, meiliMasterKey, openAiApiKey} = this.settings;
     return (meiliHost !== undefined && meiliHost !== '') &&
       (meiliMasterKey !== undefined && meiliMasterKey !== '') &&
-      (openAiApiKey !== undefined && openAiApiKey !== '')
+      (openAiApiKey !== undefined && openAiApiKey !== '');
   }
 
   private updateConnectionStatus(ok: boolean) {
@@ -184,7 +193,7 @@ export default class ObsidianAIdPlugin extends Plugin {
   }
 
   private async activateLlmChatView() {
-    const { workspace } = this.app;
+    const {workspace} = this.app;
 
     let leaf: WorkspaceLeaf | null = null;
     const leaves = workspace.getLeavesOfType(VIEW_TYPE_LLM_CHAT);
@@ -197,9 +206,9 @@ export default class ObsidianAIdPlugin extends Plugin {
       // in the right sidebar for it
       leaf = workspace.getRightLeaf(false);
       if (!leaf) {
-        return console.error(`Failed to create LLMChat view (${VIEW_TYPE_LLM_CHAT}), leaf was ${leaf}`)
+        return console.error(`Failed to create LLMChat view (${VIEW_TYPE_LLM_CHAT}), leaf was ${leaf}`);
       }
-      await leaf.setViewState({ type: VIEW_TYPE_LLM_CHAT, active: false });
+      await leaf.setViewState({type: VIEW_TYPE_LLM_CHAT, active: false});
     }
 
     // "Reveal" the leaf in case it is in a collapsed sidebar
@@ -281,7 +290,7 @@ class ObsidianAIdSettingsTab extends PluginSettingTab {
 
   private async saveAndReload() {
     await this.plugin.saveSettings();
-    await this.plugin.setup()
+    await this.plugin.setup();
   }
 }
 

@@ -7,7 +7,7 @@ export class MarkdownRenderingContext {
   static async renderMarkdown(context: MarkdownRenderingContext,
                                        text: string,
                                        element: HTMLElement) {
-    await MarkdownRenderer.render(context.plugin.app, text, element, '', context.plugin);
+    await MarkdownRenderer.render(context.plugin.app, text, element, '/', context.plugin);
   }
 }
 
