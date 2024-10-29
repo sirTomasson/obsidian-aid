@@ -141,11 +141,21 @@ export class MeiliSearchEngine<T extends Document> implements ObsidianSearchEngi
 		return result.results;
 	}
 
+	// async vectorSearch(q: string): Promise<SearchResponse<T[]>> {
+	// 	const vector = await this.embeddingsProvider(q);
+	// 	return await vectorSearch<T>(vector, this.client, this.indexUid, {
+	// 		limit: 10
+	// 	})
+	// }
+
 	async vectorSearch(q: string): Promise<SearchResponse<T[]>> {
 		const vector = await this.embeddingsProvider(q);
-		return await vectorSearch<T>(vector, this.client, this.indexUid, {
-			limit: 10
-		})
+		return await this.index().search(null, {
+			vector,
+			hybrid: {
+				embedder: 'pageContent_embeddings'
+			}
+		});
 	}
 
 	async deleteByFilter(filter: string): Promise<void> {
