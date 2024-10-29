@@ -141,13 +141,6 @@ export class MeiliSearchEngine<T extends Document> implements ObsidianSearchEngi
 		return result.results;
 	}
 
-	// async vectorSearch(q: string): Promise<SearchResponse<T[]>> {
-	// 	const vector = await this.embeddingsProvider(q);
-	// 	return await vectorSearch<T>(vector, this.client, this.indexUid, {
-	// 		limit: 10
-	// 	})
-	// }
-
 	async vectorSearch(q: string): Promise<SearchResponse<T[]>> {
 		const vector = await this.embeddingsProvider(q);
 		return await this.index().search(null, {
@@ -190,36 +183,4 @@ async function* dataLoader<T extends Document>(index: Index<T>, options: QueryOp
 		promise = index.getDocuments(queryOptions);
 		yield values.results
 	}
-}
-
-
-export async function vectorSearch<T>(
-	vector: number[],
-	client: MeiliSearch,
-	indexUid: string,
-	options: QueryOptions<T>
-): Promise<SearchResponse<T[]>> {
-	const url = `${client.config.host}/indexes/${indexUid}/search`;
-
-	const body = JSON.stringify({
-		vector,
-		...options,
-	});
-	try {
-		const response = await fetch(url, {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${client.config.apiKey}`
-			},
-			body,
-		});
-		if (response.ok) {
-			return await response.json();
-		}
-		console.error(await response.json())
-	} catch (error) {
-		console.error(error);
-	}
-	return [];
 }

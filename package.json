@@ -33,7 +33,7 @@
 		"fast-glob": "^3.3.2",
 		"langchain": "^0.2.8",
 		"lodash": "^4.17.21",
-		"meilisearch": "^0.40.0",
+		"meilisearch": "^0.45.0",
 		"uuid": "^10.0.0"
 	}
 }
