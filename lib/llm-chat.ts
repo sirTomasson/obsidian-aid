@@ -236,32 +236,14 @@ class ChatInputComponent extends BaseComponent {
               private status: ChatStatus = ChatStatus.PENDING_INPUT) {
     super();
     const chatFooter = containerEl
+      .createDiv({cls: 'chat-footer-container'})
       .createDiv({cls: 'chat-footer'})
-
-    const accountIcon = chatFooter.createDiv({cls: 'account-icon'});
-    accountIcon.createEl('img', {
-      attr: {
-        src: buildPluginStaticResourceSrc(plugin, 'assets/account-icon-0.png'),
-        alt: 'Accounts'
-      }
-    });
-
-    const accountDropdown = accountIcon.createDiv({cls: 'account-dropdown'});
-    const accounts = ['account-icon-1.png', 'account-icon-2.png', 'account-icon-3.png'];
-    accounts.forEach((avatar, index) => {
-      const accountItem = accountDropdown.createDiv({cls: 'account-item'});
-      accountItem.createEl('img', {
-        attr: {
-          src: buildPluginStaticResourceSrc(plugin, `assets/${avatar}`),
-          alt: `Account ${index + 1}`
-        }
-      });
-    });
 
     const placeholder = this.apiKeyMissing() ?
       'Disabled: OpenAI API key missing' : 'Type a message...'
 
-    this.input = chatFooter.createEl('input', {type: 'text', attr: {placeholder}});
+    this.input = chatFooter
+      .createEl('input', {type: 'text', attr: {placeholder}});
 
     this.button = chatFooter.createEl('button', {text: 'Send'});
     this.pendingInput();
