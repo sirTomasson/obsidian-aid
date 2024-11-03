@@ -30,7 +30,6 @@ body {
 	flex-direction: column;
 	height: 100%;
 	width: 100%;
-	max-width: 600px;
 	margin: auto;
 	position: relative; /* Necessary for footer positioning */
 }
@@ -38,6 +37,8 @@ body {
 .chat-header, .chat-footer {
 	padding-bottom: 10px;
 	text-align: center;
+	max-width: 600px;
+	align-items: center;
 }
 
 .chat-body {
@@ -67,7 +68,7 @@ body {
 }
 
 .chat-footer {
-	display: flex;
+	display: inline-flex;
 	align-items: center;
 	position: sticky;
 }

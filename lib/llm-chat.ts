@@ -1,158 +1,24 @@
-import {BaseComponent, Component, IconName, ItemView, setIcon, WorkspaceLeaf} from 'obsidian';
-import {buildPluginStaticResourceSrc, decodeUri} from './utils';
+import {BaseComponent, Component, IconName, ItemView, Notice, setIcon, WorkspaceLeaf} from 'obsidian';
+import {buildPluginStaticResourceSrc} from './utils';
 import ObsidianAIdPlugin from '../main';
-import {ChatOpenAI} from '@langchain/openai';
-import {ChatPromptTemplate, MessagesPlaceholder} from '@langchain/core/prompts';
-import {Runnable, RunnablePassthrough, RunnableSequence, RunnableWithMessageHistory} from '@langchain/core/runnables';
-import {AIMessage, AIMessageChunk, HumanMessage} from '@langchain/core/messages';
+import {AIMessageChunk} from '@langchain/core/messages';
 import {IterableReadableStream} from '@langchain/core/dist/utils/stream';
-import {StringOutputParser} from '@langchain/core/output_parsers';
-import {BaseRetriever} from '@langchain/core/retrievers';
-
-import {ObsidianSearchEngine} from './search-engine';
-import {DocumentChunk} from './core';
-import {InMemoryChatMessageHistory} from '@langchain/core/chat_history';
 import {MarkdownRenderingContext} from './md';
 import {MarkdownFilePreviewView} from './markdown-file-preview-view';
 import path from 'path';
+import {RAGChain} from './rag';
 
 export const VIEW_TYPE_LLM_CHAT = 'view-type-llm-chat';
 
 export class LlmChat extends ItemView {
-  private ragChainWithHistory: RunnableWithMessageHistory<Record<string, any>, AIMessageChunk>;
-  private renderingContext: MarkdownRenderingContext;
-	private isPreviewVisible: boolean;
-	private markdownPreviewView: MarkdownFilePreviewView | null = null;
+  private chain: RAGChain;
+  private readonly renderingContext: MarkdownRenderingContext;
+  private markdownPreviewView: MarkdownFilePreviewView | null = null;
 
-  constructor(leaf: WorkspaceLeaf, private plugin: ObsidianAIdPlugin) {
+  constructor(leaf: WorkspaceLeaf,
+              private plugin: ObsidianAIdPlugin) {
     super(leaf);
     this.renderingContext = new MarkdownRenderingContext(plugin);
-    const model = new ChatOpenAI({
-      model: 'gpt-4o',
-      temperature: 0,
-      apiKey: this.plugin.settings.openAiApiKey
-    });
-    const messages = [
-      new HumanMessage('What is on my shopping list'),
-      new AIMessage('Here is a link <a class="obsidian-aid-document-link" data-line-start="12" data-line-end="16" href="Master Thesis/Assignment.md">1</a>'),
-      new HumanMessage('I cannot open the link'),
-      new AIMessage('[[Groceries.md|1]]'),
-      new HumanMessage('Can you show me all my expenses in CSV format'),
-      new AIMessage(
-        'Here are your expenses in CSV format:\n' +
-        '```csv\n' +
-        'date,amount,kind\n' +
-        'today,25.67,groceries\n' +
-        'yesterday,14.50,movie tickets\n' +
-        '2 days ago,99.50,hot ones set\n' +
-        '```'
-      )
-    ];
-
-    const contextualizeQSystemPrompt = `Given a chat history and the latest user question
-		which might reference context in the chat history, formulate a standalone question
-		which can be understood without the chat history. Do NOT answer the question,
-		just reformulate it if needed and otherwise return it as is.`;
-
-    const contextualizeQPrompt = ChatPromptTemplate.fromMessages([
-      ['system', contextualizeQSystemPrompt],
-      new MessagesPlaceholder('chat_history'),
-      ['human', '{question}']
-    ]);
-    const contextualizeQChain = contextualizeQPrompt
-      .pipe(model)
-      .pipe(new StringOutputParser());
-
-    const qaSystemPrompt = `
-		You are an assistant for question-answering tasks.
-		Use the pieces of retrieved <context></context> to answer the question.
-		If you don't know the answer, just say that you don't know.
-		
-		The context contains multiple <document></document>. Cite the relevant documents in the output.
-		For citations use the following format:
-		<a class="obsidian-aid-document-link" data-line="<document-loc-start>" href="<document-path>"><number></a>
-		The document-path, and document-loc-start can be found inside the document, and the number is an increasing citation <number>, starting with 1.
-		
-		<context>
-		{context}
-		</context>`;
-
-    const qaPrompt = ChatPromptTemplate.fromMessages([
-      ['system', qaSystemPrompt],
-      new MessagesPlaceholder('chat_history'),
-      ['human', '{question}']
-    ]);
-
-    const contextualizedQuestion = (input: Record<string, unknown>): Runnable => {
-      if ('chat_history' in input) {
-        return contextualizeQChain;
-      }
-      return input.question as unknown as Runnable;
-    };
-
-    const retriever = new ObsidianSearchEngineRetriever(this.plugin.searchEngine);
-
-    const ragChain = RunnableSequence.from([
-      RunnablePassthrough.assign({
-        context: async (input: Record<string, unknown>) => {
-          if ('chat_history' in input) {
-            // console.log(input)
-            const chain = contextualizedQuestion(input);
-            const stringDocuments = await chain.pipe(retriever).pipe(formatDocuments).invoke(input as unknown as string);
-            console.log(stringDocuments);
-            return stringDocuments;
-          }
-          return '';
-        }
-      }),
-      qaPrompt,
-      model
-    ]);
-
-    const messageHistories: Record<string, InMemoryChatMessageHistory> = {};
-
-    this.ragChainWithHistory = new RunnableWithMessageHistory({
-      runnable: ragChain,
-      getMessageHistory: async (sessionId: string) => {
-        if (messageHistories[sessionId] === undefined) {
-          messageHistories[sessionId] = new InMemoryChatMessageHistory();
-        }
-        await messageHistories[sessionId].addMessages(messages);
-        return messageHistories[sessionId];
-      },
-      inputMessagesKey: 'input',
-      historyMessagesKey: 'chat_history'
-    });
-
-    this.plugin.registerMarkdownPostProcessor((element, _) => {
-      const obsidianAIdLinks = element.querySelectorAll('.obsidian-aid-document-link');
-      if (obsidianAIdLinks.length < 0) return;
-
-      obsidianAIdLinks.forEach((linkEl: HTMLLinkElement) => {
-        linkEl.addEventListener('mouseenter', () => {
-
-          linkEl.addEventListener('mousemove', (event: MouseEvent) => {
-            const showMarkdownPreview = event.ctrlKey || event.metaKey;
-            if (showMarkdownPreview) {
-              const filename = path.join(this.plugin.vaultRoot, decodeUri(linkEl.href));
-              const start = Number.parseInt(linkEl.dataset.lineStart) ?? 0;
-              this.showMarkdownPreview(this.containerEl, linkEl, filename, start);
-            }
-          });
-        });
-        linkEl.addEventListener('click', (event: MouseEvent) => {
-          const newLeaf = event.ctrlKey || event.metaKey;
-          const path = linkEl.getAttr('href');
-          if (!path) return;
-
-          const line: number = Number.parseInt(linkEl.dataset.lineStart) ?? 0;
-          this.app.workspace.openLinkText(path, '/', newLeaf, {
-            active: true,
-            eState: {line}
-          });
-        });
-      });
-    });
   }
 
   getViewType() {
@@ -173,39 +39,38 @@ export class LlmChat extends ItemView {
                             lineStart: number) {
     if (this.markdownPreviewView) return;
 
-		this.markdownPreviewView = new MarkdownFilePreviewView(
-			rootElement,
+    this.markdownPreviewView = new MarkdownFilePreviewView(
+      rootElement,
       targetEl,
-			filename,
-			new MarkdownRenderingContext(this.plugin),
-      () => this.hideMarkdownPreview(),
-		);
-		this.markdownPreviewView.show();
+      filename,
+      new MarkdownRenderingContext(this.plugin),
+      () => this.hideMarkdownPreview()
+    );
+    this.markdownPreviewView.show();
   }
 
   hideMarkdownPreview() {
-		if (!this.markdownPreviewView) return;
+    if (!this.markdownPreviewView) return;
 
-		this.markdownPreviewView.hide();
-		this.markdownPreviewView = null;
+    this.markdownPreviewView.hide();
+    this.markdownPreviewView = null;
   }
 
   async onOpen() {
     const sessionId = 'xyz';
-    const config = {
-      configurable: {
-        sessionId: 'xyz'
-      }
-    };
-
-
     const container = this.containerEl.children[1];
-
     container.empty();
-    // Create and append chat container
     const chatContainer = container.createDiv({cls: 'chat-container'});
 
-    // Create and append chat body
+    if (!this.plugin.settings.openAiApiKey) {
+      new Notice('OpenAI API key missing.')
+      container.createDiv({ cls: 'error-container'})
+        .createEl('p', { text: 'Failed to OpenAI API key missing.'})
+      return
+    }
+
+    this.chain = new RAGChain(this.plugin.settings.openAiApiKey, this.plugin.searchEngine);
+
     const chatBody = new ChatBodyComponent(chatContainer);
 
     await this.displayMessages(chatBody, sessionId);
@@ -215,18 +80,43 @@ export class LlmChat extends ItemView {
       this.plugin,
       async (question: string) => {
         chatBody.addMessage(new ChatMessageSendComponent(question));
-        const stream = await this.ragChainWithHistory.stream({
-          question
-        }, config);
-        // const stream = await this.withMessageHistory.stream({
-        // 	input: question
-        // }, config);
+        const stream = await this.chain.stream(question);
         streamingMessage = new StreamingChatMessageComponent(stream, this.renderingContext);
         chatBody.addMessage(streamingMessage);
         await streamingMessage.read();
       },
       () => streamingMessage.cancel()
     );
+
+    this.plugin.registerMarkdownPostProcessor((element, _) => {
+      const obsidianAIdLinks = element.querySelectorAll('.obsidian-aid-document-link');
+      if (obsidianAIdLinks.length < 0) return;
+
+      obsidianAIdLinks.forEach((linkEl: HTMLLinkElement) => {
+        linkEl.addEventListener('mouseenter', () => {
+
+          linkEl.addEventListener('mousemove', (event: MouseEvent) => {
+            const showMarkdownPreview = event.ctrlKey || event.metaKey;
+            if (showMarkdownPreview) {
+              const filename = path.join(this.plugin.vaultRoot, decodeUri(linkEl.href));
+              const start = Number.parseInt(linkEl.dataset.lineStart || '0');
+              this.showMarkdownPreview(this.containerEl, linkEl, filename, start);
+            }
+          });
+        });
+        linkEl.addEventListener('click', (event: MouseEvent) => {
+          const newLeaf = event.ctrlKey || event.metaKey;
+          const path = linkEl.getAttr('href');
+          if (!path) return;
+
+          const line = Number.parseInt(linkEl.dataset.lineStart || '0');
+          this.app.workspace.openLinkText(path, '/', newLeaf, {
+            active: true,
+            eState: {line}
+          });
+        });
+      });
+    });
   }
 
 
@@ -235,8 +125,7 @@ export class LlmChat extends ItemView {
   }
 
   async displayMessages(chatBody: ChatBodyComponent, sessionId: string) {
-    const history = await this.ragChainWithHistory.getMessageHistory(sessionId);
-    const messages = await history.getMessages();
+    const messages = await this.chain.history(sessionId);
     messages.forEach(message => {
       const content = message.content.toString();
       if (message._getType() == 'human') {
@@ -331,22 +220,23 @@ class ChatBodyComponent extends BaseComponent {
 enum ChatStatus {
   PENDING_INPUT,
   READY_TO_SEND,
-  GENERATING
+  GENERATING,
+  MISSING_API_KEY
 }
 
 class ChatInputComponent extends BaseComponent {
 
-  private status: ChatStatus;
   private button: HTMLButtonElement;
   private input: HTMLInputElement;
 
   constructor(containerEl: HTMLElement,
               plugin: ObsidianAIdPlugin,
               sendChatMessage: (message: string) => Promise<void>,
-              cancel: () => void) {
+              cancel: () => void,
+              private status: ChatStatus = ChatStatus.PENDING_INPUT) {
     super();
-    this.status = ChatStatus.PENDING_INPUT;
-    const chatFooter = containerEl.createDiv({cls: 'chat-footer'});
+    const chatFooter = containerEl
+      .createDiv({cls: 'chat-footer'})
 
     const accountIcon = chatFooter.createDiv({cls: 'account-icon'});
     accountIcon.createEl('img', {
@@ -368,7 +258,11 @@ class ChatInputComponent extends BaseComponent {
       });
     });
 
-    this.input = chatFooter.createEl('input', {type: 'text', attr: {placeholder: 'Type a message...'}});
+    const placeholder = this.apiKeyMissing() ?
+      'Disabled: OpenAI API key missing' : 'Type a message...'
+
+    this.input = chatFooter.createEl('input', {type: 'text', attr: {placeholder}});
+
     this.button = chatFooter.createEl('button', {text: 'Send'});
     this.pendingInput();
     this.button.addEventListener('click', async _ => {
@@ -386,6 +280,12 @@ class ChatInputComponent extends BaseComponent {
       await sendChatMessage(message);
       this.pendingInput();
     });
+
+    if (this.apiKeyMissing()) {
+      this.input.disabled = true;
+    } else {
+      this.pendingInput();
+    }
 
     this.input.addEventListener('input', (e) => {
       if (this.input.value.length > 0) {
@@ -416,34 +316,13 @@ class ChatInputComponent extends BaseComponent {
     this.button.disabled = true;
     this.status = ChatStatus.PENDING_INPUT;
   }
-}
 
-class ObsidianSearchEngineRetriever extends BaseRetriever {
-  static lc_name() {
-    return 'ObsidianSearchEngineRetriever';
+  private apiKeyMissing(): boolean {
+    return this.status === ChatStatus.MISSING_API_KEY
   }
-
-  constructor(private searchEngine: ObsidianSearchEngine<DocumentChunk>) {
-    super();
-  }
-
-  lc_namespace = ['obsidian-aid', 'retrievers', 'search-engine'];
-  lc_serializable = false;
-
-  async _getRelevantDocuments(query: string): Promise<DocumentChunk[]> {
-    const docs = (await this.searchEngine.vectorSearch(query)).hits;
-    console.log(docs);
-    return docs as unknown as DocumentChunk[];
-  }
-}
-
-function formatDocuments(documents: Record<string, any>[]): string {
-  return documents.map(document => {
-    return `<document>\n${JSON.stringify(document, null, 2)}\n</document>`;
-  }).join('\n');
 }
 
 function decodeUri(uri: string): string {
-	const strippedPath = uri.replace('app://obsidian.md/', '');
-	return decodeURIComponent(strippedPath);
+  const strippedPath = uri.replace('app://obsidian.md/', '');
+  return decodeURIComponent(strippedPath);
 }
