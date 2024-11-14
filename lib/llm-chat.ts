@@ -1,5 +1,4 @@
 import {BaseComponent, Component, IconName, ItemView, Notice, setIcon, WorkspaceLeaf} from 'obsidian';
-import {buildPluginStaticResourceSrc} from './utils';
 import ObsidianAIdPlugin from '../main';
 import {AIMessageChunk} from '@langchain/core/messages';
 import {IterableReadableStream} from '@langchain/core/dist/utils/stream';
@@ -7,6 +6,7 @@ import {MarkdownRenderingContext} from './md';
 import {MarkdownFilePreviewView} from './markdown-file-preview-view';
 import path from 'path';
 import {RAGChain} from './rag';
+import {calculateTextWidth, countNewlines} from './utils';
 
 export const VIEW_TYPE_LLM_CHAT = 'view-type-llm-chat';
 
@@ -63,8 +63,8 @@ export class LlmChat extends ItemView {
     const chatContainer = container.createDiv({cls: 'chat-container'});
 
     if (!this.plugin.settings.openAiApiKey) {
-      new Notice('OpenAI API key missing.')
-      container.createDiv({ cls: 'error-container'})
+      new Notice('OpenAI API key missing.');
+      chatContainer.createDiv({ cls: 'error-container'})
         .createEl('p', { text: 'Failed to OpenAI API key missing.'})
       return
     }
@@ -226,11 +226,11 @@ enum ChatStatus {
 
 class ChatInputComponent extends BaseComponent {
 
-  private button: HTMLButtonElement;
-  private input: HTMLInputElement;
+  private readonly button: HTMLButtonElement;
+  private readonly textArea: HTMLTextAreaElement;
 
   constructor(containerEl: HTMLElement,
-              plugin: ObsidianAIdPlugin,
+              private readonly plugin: ObsidianAIdPlugin,
               sendChatMessage: (message: string) => Promise<void>,
               cancel: () => void,
               private status: ChatStatus = ChatStatus.PENDING_INPUT) {
@@ -242,10 +242,22 @@ class ChatInputComponent extends BaseComponent {
     const placeholder = this.apiKeyMissing() ?
       'Disabled: OpenAI API key missing' : 'Type a message...'
 
-    this.input = chatFooter
-      .createEl('input', {type: 'text', attr: {placeholder}});
+    this.textArea = chatFooter
+      .createDiv({cls: 'chat-input-container'})
+      .createEl('textarea', {type: 'text', attr: {placeholder, rows: 1}});
 
-    this.button = chatFooter.createEl('button', {text: 'Send'});
+    this.textArea.addEventListener('input', () => {
+      const textWidth = calculateTextWidth(this.textArea.value, null);
+      const chatInputWidth = this.textArea.offsetWidth;
+      const newLines = countNewlines(this.textArea.value);
+      const nRows = Math.floor(textWidth / chatInputWidth) + newLines + 1;
+      this.textArea.rows = Math.min(nRows, 5);
+    });
+
+    this.button = chatFooter
+      .createDiv({cls: 'stick2bottom-outer'})
+      .createDiv({cls: 'stick2bottom-container'})
+      .createEl('button', {text: 'Send', cls: 'stick2bottom'});
     this.pendingInput();
     this.button.addEventListener('click', async _ => {
       if (this.isGenerating()) {
@@ -253,7 +265,7 @@ class ChatInputComponent extends BaseComponent {
         this.pendingInput();
         return;
       }
-      const message = this.input.value;
+      const message = this.textArea.value;
       if (!message) {
         return;
       }
@@ -264,13 +276,13 @@ class ChatInputComponent extends BaseComponent {
     });
 
     if (this.apiKeyMissing()) {
-      this.input.disabled = true;
+      this.textArea.disabled = true;
     } else {
       this.pendingInput();
     }
 
-    this.input.addEventListener('input', (e) => {
-      if (this.input.value.length > 0) {
+    this.textArea.addEventListener('input', () => {
+      if (this.textArea.value.length > 0) {
         this.readyToSend();
       } else {
         this.pendingInput();
@@ -280,7 +292,7 @@ class ChatInputComponent extends BaseComponent {
 
   private generating() {
     setIcon(this.button, 'square');
-    this.input.value = '';
+    this.textArea.value = '';
     this.status = ChatStatus.GENERATING;
   }
 

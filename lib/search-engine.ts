@@ -161,10 +161,7 @@ export class MeiliSearchEngine<T extends Document> implements ObsidianSearchEngi
       await this.client.getIndex(this.indexUid);
       return true;
     } catch (error: any) {
-      if (error.code === 'index_not_found') {
-        return false;
-      }
-      throw error;
+      return false
     }
   }
 }

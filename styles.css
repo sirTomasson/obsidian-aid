@@ -42,10 +42,7 @@ body {
 }
 
 .chat-header, .chat-footer {
-	padding-bottom: 10px;
-	text-align: center;
 	width: 400px;
-	align-items: center;
 }
 
 .chat-body {
@@ -76,27 +73,41 @@ body {
 
 .chat-footer {
 	display: inline-flex;
-	align-items: center;
 	position: sticky;
 }
-
-.chat-footer input[type="text"] {
+.chat-input-container {
 	flex-grow: 1;
+}
+.chat-input-container textarea {
+	width: 100%;
+	box-sizing: border-box;
+	resize: none;
+	padding-top: 4px;
+	padding-bottom: 4px;
 }
 
 .chat-footer button {
 	padding: 6px;
-	width: 30px;
-	height: 30px;
+	width: 28px;
+	height: 28px;
 	margin-left: 10px;
 	background-color: var(--interactive-accent);
 	color: #fff;
 	border: none;
 	border-radius: 5px;
 	cursor: pointer;
+	margin-bottom: 2px;
 }
 
 .chat-footer button:hover {
 	background-color: var(--interactive-accent-hover);
 }
 
+.stick2bottom-container {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+}
+.stick2bottom {
+	margin-top: auto;
+}

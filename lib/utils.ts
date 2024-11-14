@@ -109,3 +109,21 @@ export function asErr<E>(valueOrError: unknown | Err<E>): Err<E> {
 export function any<T = unknown>(array: Array<T>) {
 	return array.length > 0;
 }
+
+export function calculateTextWidth(text: string, font: string | null) {
+	// Create a hidden canvas element
+	const canvas = document.createElement('canvas');
+	const context = canvas.getContext('2d');
+
+	// Set the font if provided, otherwise use the default
+	context!.font = font || getComputedStyle(document.body).font;
+
+	// Measure the text
+	const metrics = context!.measureText(text);
+
+	return metrics.width;
+}
+
+export function countNewlines(str: string) {
+	return (str.match(/\n/g) || []).length;
+}
