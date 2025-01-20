@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+</head>
+<body>
+<script type="module">
+    import {pipeline} from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.2.4';
+    import {env} from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.2.4';
+
+    if (window.Worker) {
+        console.log('worker available, let\'s work');
+        const embeddingsWorker = new Worker("worker.js", { type: 'module' });
+        embeddingsWorker.postMessage({ texts: [ 'hello world!' ] });
+
+        embeddingsWorker.onmessage = function(msg) {
+            console.log(msg.data.embeddings);
+        }
+    } else {
+        console.warn('worker is not available, halp ');
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        await main();
+    });
+
+    function totalSize(dims) {
+        let size = 1;
+        for (let i = 0; i < dims.length; i++) {
+            size *= dims[i];
+        }
+        return size;
+    }
+
+    function tensorZeros(dims) {
+        const size = totalSize(dims);
+        const data = new Array(size).fill(0);
+        return {
+            data,
+            dims
+        }
+    }
+
+    function meanTensor(tensor, dim) {
+        const dimSize = tensor.dims[dim];
+        const tensorSum = sumTensor(tensor, dim);
+        return divTensor(dimSize, tensorSum);
+    }
+
+    function divTensor(x, tensor) {
+        const result = Array.from(tensor.data);
+        for (let i = 0; i < result.length; ++i) {
+            result[i] /= x
+        }
+        return result;
+    }
+
+    function sumTensor(tensor, dim) {
+        const dims = tensor.dims
+        const data = tensor.data
+        const dimSize = dims[dim]
+        const size = dims.slice(dim+1, dims.length).reduce((a, b) => a * b)
+        const remainingDims = dims.filter((d, i) => i !== dim)
+        const result = tensorZeros(remainingDims)
+        for (let i = 0; i < size; i++) {
+            for (let j = 0; j < dimSize; j++) {
+                const index = j * size + i
+                const value = data[index]
+                result.data[i] += value
+            }
+        }
+        return result
+    }
+
+
+    async function main() {
+        const sentence = document.getElementById('sentence').innerHTML;
+        const compare = document.getElementById('compare').innerHTML;
+
+        env.localModelPath = 'models/';
+
+        // Disable the loading of remote models from the Hugging Face Hub:
+        env.allowRemoteModels = false;
+        env.allowLocalModels = true;
+
+        // const pipe = await pipeline('feature-extraction', 'intfloat/multilingual-e5-small', {
+        //     dtype: 'q4'
+        // });
+        // console.log(sentence);
+        // const sentenceEmbedding = await pipe(['I want to be a hippy person!', 'helo world!']);
+        // // console.log(sentenceEmbedding.get());
+        // console.info(sentenceEmbedding);
+        //
+        // const tensorMean = meanTensor(sentenceEmbedding, 1);
+        // console.log(tensorMean);
+    }
+
+</script>
+<p>The sentence: "<span id="sentence">Hola mi amigo</span>" is similar to "<span id="compare">Hello my friend</span>",
+  because the similarity score=<span id="score">Computing</span></p>
+
+</body>
+</html>
